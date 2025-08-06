@@ -619,6 +619,18 @@ struct llm_graph_context {
        llm_ffn_gate_type   type_gate,
                      int   il) const;
 
+    ggml_tensor * build_mergez_moe_ffn(
+             ggml_tensor * cur,
+             ggml_tensor * hidden_state,
+             ggml_tensor * gate_inp,
+             ggml_tensor * exp_probs_b,
+             ggml_tensor * up_exps,
+             ggml_tensor * gate_exps,
+             ggml_tensor * down_exps,
+                 int64_t   n_expert,
+                 int64_t   n_expert_used,
+                     int   il) const;
+
     ggml_tensor * build_moe_ffn(
              ggml_tensor * cur,
              ggml_tensor * gate_inp,

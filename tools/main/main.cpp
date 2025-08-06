@@ -660,6 +660,12 @@ int main(int argc, char ** argv) {
                 }
             }
 
+            // std::cout << "Input token:";
+            // for (const auto& token : embd) {
+            //     std::cout << "AAAAAAAAAAAAAAAAAAAAAAAAAAAA " << token<< std::endl;
+            // }
+            // std::cout << std::endl;
+
             for (int i = 0; i < (int) embd.size(); i += params.n_batch) {
                 int n_eval = (int) embd.size() - i;
                 if (n_eval > params.n_batch) {

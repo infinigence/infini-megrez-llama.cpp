@@ -810,11 +810,13 @@ ggml_tensor * llm_graph_context::build_mergez_moe_ffn(
             ggml_reshape_3d(ctx0, normalized_logits, 1, n_expert, n_tokens), selected_experts); // [1, n_expert_used, n_tokens]
         cb(weight0s, "ffn_moe_weights0", il);
         weight0s = ggml_reshape_2d(ctx0, weight0s, n_expert_used, n_tokens);
+        cb(weight0s, "ffn_moe_weights0_reshape_2d", il);
         ggml_tensor * weights_sum = ggml_sum_rows(ctx0, weight0s); // [1, n_tokens]
         cb(weights_sum, "ffn_moe_weights0_sum", il);
         weights = ggml_div(ctx0, weight0s, weights_sum); // [n_expert_used, n_tokens]
         cb(weights, "ffn_moe_weights_norm", il);
         weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used, n_tokens);
+        cb(weights, "ffn_moe_weights_norm_reshape_3d", il);
     } else {
         weights = ggml_get_rows(ctx0,
             ggml_reshape_3d(ctx0, probs, 1, n_expert, n_tokens), selected_experts); // [1, n_expert_used, n_tokens]

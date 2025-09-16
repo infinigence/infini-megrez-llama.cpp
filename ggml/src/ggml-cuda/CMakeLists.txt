@@ -115,6 +115,7 @@ if (CUDAToolkit_FOUND)
     else()
         target_link_libraries(ggml-cuda PRIVATE CUDA::cuda_driver)
     endif()
+    
 
     set(CUDA_CXX_FLAGS "")
 

@@ -5,6 +5,8 @@ llama_add_compile_flags()
 #
 
 # llama
+find_package(ZLIB REQUIRED)
+include_directories(${ZLIB_INCLUDE_DIRS})
 
 add_library(llama
             ../include/llama.h
@@ -39,9 +41,11 @@ add_library(llama
 
 target_include_directories(llama PRIVATE .)
 target_include_directories(llama PUBLIC ../include)
+target_include_directories(llama PUBLIC ../common)
 target_compile_features   (llama PRIVATE cxx_std_17) # don't bump
 
 target_link_libraries(llama PUBLIC ggml)
+target_link_libraries(llama PRIVATE ZLIB::ZLIB)
 
 if (BUILD_SHARED_LIBS)
     set_target_properties(llama PROPERTIES POSITION_INDEPENDENT_CODE ON)

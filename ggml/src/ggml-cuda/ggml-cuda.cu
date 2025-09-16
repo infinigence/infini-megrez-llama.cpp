@@ -47,6 +47,10 @@
 #include "ggml-cuda/gla.cuh"
 #include "ggml-cuda/set-rows.cuh"
 #include "ggml.h"
+#include "cnpy.h"
+#include "half.hpp"
+#include <sys/stat.h>  // 包含 stat 结构体和函数
+#include <iostream>
 
 #include <algorithm>
 #include <array>
@@ -2881,6 +2885,19 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, 
 //     printf("}\n");
 // }
 
+bool directoryExists(const std::string& path) {
+    struct stat info;
+    
+    // 调用 stat 函数获取路径信息
+    if (stat(path.c_str(), &info) != 0) {
+        // stat 调用失败，路径不存在或无法访问
+        return false;
+    }
+    
+    // 判断获取的信息是否为目录
+    return (info.st_mode & S_IFDIR) != 0;
+}
+
 static void infini_print_checksum(ggml_tensor *meta, const float *data) {
     assert(data);
 
@@ -2903,6 +2920,7 @@ static void infini_print_checksum(ggml_tensor *meta, const float *data) {
     }
     stdev = sqrt(stdev / (dim * n));
 
+    if(0) {
     printf("TCKSM ave %11.6f  stdev %11.6f  max %11.6f  min %15.6f %40s %16s %8s [ %6" PRId64 ", %5" PRId64 ", %3" PRId64 ", %3" PRId64 "] %p {",
            ave, stdev, max, min,
            ggml_get_name(meta),
@@ -2915,8 +2933,8 @@ static void infini_print_checksum(ggml_tensor *meta, const float *data) {
             break;
         printf(" %32s ", ggml_get_name(meta->src[ii]));
     }
-    printf("}\n");
-
+    printf("}\n");  
+    }
     // 保存数据到文件（便于Python读取）
     {
         // 生成文件名
@@ -2927,7 +2945,18 @@ static void infini_print_checksum(ggml_tensor *meta, const float *data) {
         } else {
             snprintf(base_filename, sizeof(base_filename), "tensor_%p", meta->data);
         }
+
+        if(directoryExists("./dump/"))
+        {
+            std::string fi = "./dump/";
+            std::vector<size_t> shape = {(size_t)meta->ne[3],(size_t)meta->ne[2],(size_t)meta->ne[1],(size_t)meta->ne[0]}; // 数组形状
+
+            fi = fi + std::string(tensor_name) + ".fp32.npy";
+            cnpy::npy_save(fi, data, shape, "w");
+            // printf("npy saved to %s\n", fi.c_str());
+        }
         
+        if (0) {
         // 方法1: CSV格式（最便于Python读取）
         char csv_filename[512];
         snprintf(csv_filename, sizeof(csv_filename), "./dump/%s.csv", base_filename);
@@ -2941,7 +2970,7 @@ static void infini_print_checksum(ggml_tensor *meta, const float *data) {
             fclose(csv_file);
             printf("Data saved to %s\n", csv_filename);
         }
-        if (0) {
+        
         // 方法2: 纯二进制格式
         char bin_filename[512];
         snprintf(bin_filename, sizeof(bin_filename), "%s.bin", base_filename);
@@ -3000,7 +3029,7 @@ static void infini_validate_tensor(ggml_backend_cuda_context &ctx, ggml_tensor *
         int64_t nel = ggml_nelements(node);
         float *bbuf = (float *)malloc(nel*sizeof(float));
         assert(bbuf);
-        if (node->type != GGML_TYPE_F32) {
+        if (node->type != GGML_TYPE_F32 && node->type != GGML_TYPE_I32) {
             ggml_cuda_pool_alloc<float> node_fp32(ctx.pool(id), nel);
             const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(node->type);
             if (!to_fp32_cuda) {
@@ -3076,11 +3105,30 @@ static void evaluate_and_capture_cuda_graph(ggml_backend_cuda_context * cuda_ctx
                     GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
                 }
                 
+                if (strstr(ggml_get_name(node), "ffn_moe_logits_normalize")) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                }
+
                 if (strstr(ggml_get_name(node), "ffn_moe_probs")) {
                     infini_validate_tensor(*cuda_ctx, node);
                     infini_validate_tensor(*cuda_ctx, node->src[1]);
                 }
 
+                if (node->op == GGML_OP_ARGSORT) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                }
+                
+                if (strstr(ggml_get_name(node), "ffn_moe_weights0")) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                }
+                if (strstr(ggml_get_name(node), "ffn_moe_weights0_sum")) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                }
+                if (strstr(ggml_get_name(node), "ffn_moe_weights_norm")) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                }
+                
+                
                 // if (strstr(ggml_get_name(node), "result_output")) {
                 //     infini_validate_tensor(*cuda_ctx, node);
                 // }

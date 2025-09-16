@@ -220,6 +220,9 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     target_link_libraries(ggml PRIVATE dl)
 endif()
 
+find_package(ZLIB REQUIRED)
+include_directories(${ZLIB_INCLUDE_DIRS})
+
 function(ggml_add_backend_library backend)
     if (GGML_BACKEND_DL)
         add_library(${backend} MODULE ${ARGN})
@@ -236,6 +239,16 @@ function(ggml_add_backend_library backend)
 
     target_link_libraries(${backend} PRIVATE ggml-base)
     target_include_directories(${backend} PRIVATE ..)
+
+    if (${backend} STREQUAL "ggml-cuda")
+        target_include_directories(${backend} PRIVATE ../../../common)
+        target_link_libraries(${backend} PRIVATE ZLIB::ZLIB)
+        target_sources(${backend} PRIVATE
+            ../../../common/cnpy.cpp
+            ../../../common/cnpy.h
+            ../../../common/half.hpp
+        )
+    endif()
 
     if (${BUILD_SHARED_LIBS})
         target_compile_definitions(${backend} PRIVATE GGML_BACKEND_BUILD)

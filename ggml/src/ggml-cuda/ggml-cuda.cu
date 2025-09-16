@@ -2920,7 +2920,7 @@ static void infini_print_checksum(ggml_tensor *meta, const float *data) {
     }
     stdev = sqrt(stdev / (dim * n));
 
-    if(0) {
+    if(1) {
     printf("TCKSM ave %11.6f  stdev %11.6f  max %11.6f  min %15.6f %40s %16s %8s [ %6" PRId64 ", %5" PRId64 ", %3" PRId64 ", %3" PRId64 "] %p {",
            ave, stdev, max, min,
            ggml_get_name(meta),
@@ -3039,6 +3039,14 @@ static void infini_validate_tensor(ggml_backend_cuda_context &ctx, ggml_tensor *
             CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
             CUDA_CHECK(cudaMemcpyAsync(bbuf, (const char *)node_fp32.get(), nel * sizeof(float), cudaMemcpyDeviceToHost, cudaStreamPerThread));
             CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+        } else if (node->type == GGML_TYPE_I32) {
+            int32_t *bbuf_int = (int32_t *)malloc(nel*sizeof(int32_t));
+            CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
+            ggml_backend_cuda_buffer_get_tensor(node->buffer, node, (void *)bbuf_int, 0, ggml_nbytes(node));
+            for(int i = 0 ; i < nel; i++) {
+                bbuf[i] = (float)bbuf_int[i];
+            }
+            free(bbuf_int);
         } else {
             CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
             ggml_backend_cuda_buffer_get_tensor(node->buffer, node, (void *)bbuf, 0, ggml_nbytes(node));
@@ -3055,6 +3063,8 @@ static void infini_validate_tensor(ggml_backend_cuda_context &ctx, ggml_tensor *
         free(bbuf);
     }
 }
+
+static bool only_prefill = true;
 
 static void evaluate_and_capture_cuda_graph(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph,
     bool & graph_evaluated_or_captured, bool & use_cuda_graph, bool & cuda_graph_update_required) {
@@ -3104,27 +3114,35 @@ static void evaluate_and_capture_cuda_graph(ggml_backend_cuda_context * cuda_ctx
                 if (!ok) {
                     GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
                 }
+
+                if (strstr(ggml_get_name(node), "ffn_moe_logits_normalize-1"))
+                {
+                    if (node->ne[1] > 1)
+                        only_prefill = true;
+                    else 
+                        only_prefill = false;
+                }   
                 
-                if (strstr(ggml_get_name(node), "ffn_moe_logits_normalize")) {
+                if (only_prefill && strstr(ggml_get_name(node), "ffn_moe_logits_normalize")) {
                     infini_validate_tensor(*cuda_ctx, node);
                 }
 
-                if (strstr(ggml_get_name(node), "ffn_moe_probs")) {
+                if (only_prefill && strstr(ggml_get_name(node), "ffn_moe_probs")) {
                     infini_validate_tensor(*cuda_ctx, node);
                     infini_validate_tensor(*cuda_ctx, node->src[1]);
                 }
 
-                if (node->op == GGML_OP_ARGSORT) {
+                if (only_prefill && node->op == GGML_OP_ARGSORT) {
                     infini_validate_tensor(*cuda_ctx, node);
                 }
                 
-                if (strstr(ggml_get_name(node), "ffn_moe_weights0")) {
+                if (only_prefill && strstr(ggml_get_name(node), "ffn_moe_weights0")) {
                     infini_validate_tensor(*cuda_ctx, node);
                 }
-                if (strstr(ggml_get_name(node), "ffn_moe_weights0_sum")) {
+                if (only_prefill && strstr(ggml_get_name(node), "ffn_moe_weights0_sum")) {
                     infini_validate_tensor(*cuda_ctx, node);
                 }
-                if (strstr(ggml_get_name(node), "ffn_moe_weights_norm")) {
+                if (only_prefill &&  strstr(ggml_get_name(node), "ffn_moe_weights_norm")) {
                     infini_validate_tensor(*cuda_ctx, node);
                 }
                 

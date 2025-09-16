@@ -2841,6 +2841,192 @@ static bool ggml_cuda_can_fuse(const struct ggml_cgraph * cgraph, int node_idx, 
     return false;
 }
 
+// INFINIAI
+// debug: dump checksum of a tensor
+// data ne:[dim, n], shape {n * dim}
+// static void infini_print_checksum(ggml_tensor *meta, const float *data) {
+//     assert(data);
+
+//     size_t dim = meta->ne[0];
+//     size_t n = meta->ne[1] * meta->ne[2] * meta->ne[3];
+
+//     double sum = data[0];
+//     double max = data[0];
+//     double min = data[0];
+//     double ave = 0.0f;
+//     double stdev = 0.0f;
+//     for (size_t i = 1; i < dim * n; ++i) {
+//         sum += data[i];
+//         if (data[i] > max) max = data[i];
+//         if (data[i] < min) min = data[i];
+//     }
+//     ave = sum / (dim * n);
+//     for (size_t i = 0; i < dim * n; ++i) {
+//         stdev += (data[i] - ave) * (data[i] - ave);
+//     }
+//     stdev = sqrt(stdev / (dim * n));
+
+//     printf("TCKSM ave %11.6f  stdev %11.6f  max %11.6f  min %15.6f %40s %16s %8s [ %6" PRId64 ", %5" PRId64 ", %3" PRId64 ", %3" PRId64 "] %p {",
+//            ave, stdev, max, min,
+//            ggml_get_name(meta),
+//            ggml_op_name(meta->op),
+//            ggml_type_name(meta->type),
+//            meta->ne[0], meta->ne[1], meta->ne[2], meta->ne[3],
+//            meta->data);
+//     for (int ii = 0; ii < GGML_MAX_SRC; ++ii) {
+//         if (!meta->src[ii])
+//             break;
+//         printf(" %32s ", ggml_get_name(meta->src[ii]));
+//     }
+//     printf("}\n");
+// }
+
+static void infini_print_checksum(ggml_tensor *meta, const float *data) {
+    assert(data);
+
+    size_t dim = meta->ne[0];
+    size_t n = meta->ne[1] * meta->ne[2] * meta->ne[3];
+
+    double sum = data[0];
+    double max = data[0];
+    double min = data[0];
+    double ave = 0.0f;
+    double stdev = 0.0f;
+    for (size_t i = 1; i < dim * n; ++i) {
+        sum += data[i];
+        if (data[i] > max) max = data[i];
+        if (data[i] < min) min = data[i];
+    }
+    ave = sum / (dim * n);
+    for (size_t i = 0; i < dim * n; ++i) {
+        stdev += (data[i] - ave) * (data[i] - ave);
+    }
+    stdev = sqrt(stdev / (dim * n));
+
+    printf("TCKSM ave %11.6f  stdev %11.6f  max %11.6f  min %15.6f %40s %16s %8s [ %6" PRId64 ", %5" PRId64 ", %3" PRId64 ", %3" PRId64 "] %p {",
+           ave, stdev, max, min,
+           ggml_get_name(meta),
+           ggml_op_name(meta->op),
+           ggml_type_name(meta->type),
+           meta->ne[0], meta->ne[1], meta->ne[2], meta->ne[3],
+           meta->data);
+    for (int ii = 0; ii < GGML_MAX_SRC; ++ii) {
+        if (!meta->src[ii])
+            break;
+        printf(" %32s ", ggml_get_name(meta->src[ii]));
+    }
+    printf("}\n");
+
+    // 保存数据到文件（便于Python读取）
+    {
+        // 生成文件名
+        char base_filename[512];
+        const char *tensor_name = ggml_get_name(meta);
+        if (tensor_name && strlen(tensor_name) > 0) {
+            snprintf(base_filename, sizeof(base_filename), "%s", tensor_name);
+        } else {
+            snprintf(base_filename, sizeof(base_filename), "tensor_%p", meta->data);
+        }
+        
+        // 方法1: CSV格式（最便于Python读取）
+        char csv_filename[512];
+        snprintf(csv_filename, sizeof(csv_filename), "./dump/%s.csv", base_filename);
+        
+        FILE *csv_file = fopen(csv_filename, "w");
+        if (csv_file) {
+            fprintf(csv_file, "index,value\n");
+            for (size_t i = 0; i < dim * n; ++i) {
+                fprintf(csv_file, "%zu,%.12f\n", i, data[i]);
+            }
+            fclose(csv_file);
+            printf("Data saved to %s\n", csv_filename);
+        }
+        if (0) {
+        // 方法2: 纯二进制格式
+        char bin_filename[512];
+        snprintf(bin_filename, sizeof(bin_filename), "%s.bin", base_filename);
+        
+        FILE *bin_file = fopen(bin_filename, "wb");
+        if (bin_file) {
+            fwrite(data, sizeof(float), dim * n, bin_file);
+            fclose(bin_file);
+            printf("Binary data saved to %s\n", bin_filename);
+            printf("Python usage: data = np.fromfile('%s', dtype=np.float32)\n", bin_filename);
+        }
+        
+        // 方法3: 简单的文本格式（一行一个数值）
+        char txt_filename[512];
+        snprintf(txt_filename, sizeof(txt_filename), "%s.txt", base_filename);
+        
+        FILE *txt_file = fopen(txt_filename, "w");
+        if (txt_file) {
+            for (size_t i = 0; i < dim * n; ++i) {
+                fprintf(txt_file, "%.12f\n", data[i]);
+            }
+            fclose(txt_file);
+            printf("Text data saved to %s\n", txt_filename);
+        }
+        }
+    }
+}
+
+
+static void infini_validate_tensor(ggml_backend_cuda_context &ctx, ggml_tensor *node) {
+    static int inited = 1;
+    static int dump = 1;
+    if (!inited) {
+        dump = (std::getenv("INFINI_DUMP_TENSOR") != NULL);
+    }
+    if (!dump) {
+        return;
+    }
+
+    if (ggml_backend_buffer_is_host(node->buffer)) {
+        if (node->type == GGML_TYPE_F32) {
+            float *bbuf = (float *)node->data;
+            for (int64_t i = 0; i < ggml_nelements(node); ++i) {
+                if (isnan(bbuf[i])) {
+                    printf("\nTensor %s contains NAN\n", ggml_get_name(node));
+                    //assert(false);
+                    return;
+                }
+            }
+            infini_print_checksum(node, bbuf);
+        } else {
+            printf("\nSkip Host non-fp32 tensor %s\n", ggml_get_name(node));
+        }
+    } else {
+        int id = ggml_cuda_get_device();
+        int64_t nel = ggml_nelements(node);
+        float *bbuf = (float *)malloc(nel*sizeof(float));
+        assert(bbuf);
+        if (node->type != GGML_TYPE_F32) {
+            ggml_cuda_pool_alloc<float> node_fp32(ctx.pool(id), nel);
+            const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(node->type);
+            if (!to_fp32_cuda) {
+                return;
+            }
+            to_fp32_cuda(node->data, node_fp32.get(), nel, ctx.stream());
+            CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
+            CUDA_CHECK(cudaMemcpyAsync(bbuf, (const char *)node_fp32.get(), nel * sizeof(float), cudaMemcpyDeviceToHost, cudaStreamPerThread));
+            CUDA_CHECK(cudaStreamSynchronize(cudaStreamPerThread));
+        } else {
+            CUDA_CHECK(cudaStreamSynchronize(ctx.stream()));
+            ggml_backend_cuda_buffer_get_tensor(node->buffer, node, (void *)bbuf, 0, ggml_nbytes(node));
+        }
+        for (int64_t i = 0; i < nel; ++i) {
+            if (isnan(bbuf[i])) {
+                printf("\nTensor %s contains NAN\n", node->name);
+                // assert(false);
+                free(bbuf);
+                return;
+            }
+        }
+        infini_print_checksum(node, bbuf);
+        free(bbuf);
+    }
+}
+
 static void evaluate_and_capture_cuda_graph(ggml_backend_cuda_context * cuda_ctx, ggml_cgraph * cgraph,
     bool & graph_evaluated_or_captured, bool & use_cuda_graph, bool & cuda_graph_update_required) {
     // flag used to determine whether it is an integrated_gpu
@@ -2889,6 +3075,15 @@ static void evaluate_and_capture_cuda_graph(ggml_backend_cuda_context * cuda_ctx
                 if (!ok) {
                     GGML_LOG_ERROR("%s: op not supported %s (%s)\n", __func__, node->name, ggml_op_name(node->op));
                 }
+                
+                if (strstr(ggml_get_name(node), "ffn_moe_probs")) {
+                    infini_validate_tensor(*cuda_ctx, node);
+                    infini_validate_tensor(*cuda_ctx, node->src[1]);
+                }
+
+                // if (strstr(ggml_get_name(node), "result_output")) {
+                //     infini_validate_tensor(*cuda_ctx, node);
+                // }
 
                 GGML_ASSERT(ok);
             }

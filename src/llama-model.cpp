@@ -1825,7 +1825,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
                 ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
-                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, true);
+                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
             } break;
         default: throw std::runtime_error("unsupported model architecture");
     }
@@ -5381,7 +5381,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
                         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
-                        if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID) {
+                        if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID || hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
+                            // default: sigmoid
                             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, nullptr, i), {n_expert}, 0);
                         }
 
